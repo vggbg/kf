@@ -47,7 +47,7 @@ input, textarea {
     border-radius: 14px;
     font-family: 'Selawk', sans-serif;
     font-size: 0.9rem;
-    background: #ffffff;
+    background: #fafbfc;
     color: #1e2b37;
     transition: 0.2s;
     outline: none;
@@ -113,7 +113,7 @@ body.standalone {
     align-items: center;
     justify-content: center;
     padding: 24px;
-    background: #eef2f4;
+    background: #fff;
 }
 body.standalone .wrap {
     width: 100%;
