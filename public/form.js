@@ -22,9 +22,14 @@
     }
   }
 
+  // Самостоятелно отваряне (без iframe) - картичка с нормални размери
+  if (!inIframe()) {
+    document.body.classList.add("standalone");
+  }
+
   function reportHeight() {
     var el = document.querySelector(".wrap");
-    var h = el ? Math.ceil(el.getBoundingClientRect().height) : document.body.scrollHeight;
+    var h = el ? Math.ceil(el.getBoundingClientRect().bottom + window.scrollY) : document.body.scrollHeight;
     postToParent({ type: "cfw:resize", height: h });
   }
 
