@@ -1,2 +1,10 @@
+[project]
+name = "contact-form"
+version = "0.1.0"
+requires-python = ">=3.9"
+dependencies = [
+    "flask>=3.0,<4",
+]
+
 [tool.vercel]
 entrypoint = "api.send:app"
