@@ -1,14 +1,15 @@
 """
 Vercel Serverless функция: получава съобщение от контактната форма
-и го праща до твоята електронна поща чрез Resend API.
+и го праща по електронна поща през собствен SMTP сървър.
 
 Endpoint: POST /api/send
 
 Env променливи (Vercel -> Settings -> Environment Variables):
-  RESEND_API_KEY    - API ключ от resend.com (задължително)
-  CONTACT_EMAIL     - имейлът, на който да отиват съобщенията (задължително)
-  MAIL_FROM         - подател, напр. "Форма <forma@tvoydomain.com>"
-                      (по подразбиране onboarding@resend.dev - само за тест)
+  SMTP_SERVER - адрес на пощенския сървър, напр. mail.vgg-bg.com (задължително)
+  SMTP_PORT   - порт; 465 = директно SSL (по подразбиране), 587 = STARTTLS
+  SMTP_USER   - потребител, напр. v.georgiev@vgg-bg.com (задължително)
+  SMTP_PASS   - паролата (само тук, НИКОГА в кода или GitHub)
+  CONTACT_EMAIL - на кого да идват съобщенията; по подразбиране = SMTP_USER
   ALLOWED_ORIGINS   - допълнителни домейни със запетая, които могат да викат
                       API-то директно (не е нужно за обикновеното вграждане)
   RATE_LIMIT_MAX    - макс. съобщения от един IP (по подразбиране 5)
@@ -16,15 +17,15 @@ Env променливи (Vercel -> Settings -> Environment Variables):
 """
 
 import html
-import json
 import os
 import re
+import smtplib
 import time
 from datetime import datetime
+from email.message import EmailMessage
+from email.utils import formataddr
 
 from flask import Flask, jsonify, request
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
 
 try:
     from zoneinfo import ZoneInfo
@@ -34,7 +35,6 @@ except Exception:
 
 app = Flask(__name__)
 
-RESEND_API_URL = "https://api.resend.com/emails"
 EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 MAX_NAME_LEN = 100
 MAX_MESSAGE_LEN = 3000
@@ -93,16 +93,29 @@ def _rate_limited(ip: str) -> bool:
 
 
 def _send_email(payload: dict) -> None:
-    """Изпраща имейл през Resend. Отделна функция, за да се тества лесно."""
-    key = os.environ.get("RESEND_API_KEY", "")
-    req = Request(
-        RESEND_API_URL,
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-        method="POST",
-    )
-    with urlopen(req, timeout=10) as resp:
-        resp.read()
+    """Изпраща писмо през SMTP. Отделна функция, за да се тества лесно."""
+    server = os.environ["SMTP_SERVER"]
+    port = int(os.environ.get("SMTP_PORT", "465"))
+    user = os.environ["SMTP_USER"]
+    password = os.environ["SMTP_PASS"]
+
+    msg = EmailMessage()
+    msg["From"] = payload["from"]
+    msg["To"] = payload["to"]
+    msg["Reply-To"] = payload["reply_to"]
+    msg["Subject"] = payload["subject"]
+    msg.set_content(payload["text"])
+    msg.add_alternative(payload["html"], subtype="html")
+
+    if port == 465:
+        with smtplib.SMTP_SSL(server, port, timeout=15) as smtp:
+            smtp.login(user, password)
+            smtp.send_message(msg)
+    else:
+        with smtplib.SMTP(server, port, timeout=15) as smtp:
+            smtp.starttls()
+            smtp.login(user, password)
+            smtp.send_message(msg)
 
 
 def _source_site() -> str:
@@ -112,6 +125,20 @@ def _source_site() -> str:
         if m:
             return m.group(1)
     return request.host or "сайт"
+
+
+def _build_text(name: str, phone: str, email: str, message: str, site: str) -> str:
+    dt = datetime.now(_TZ) if _TZ else datetime.utcnow()
+    lines = [
+        "Ново съобщение от контактната форма",
+        "",
+        f"Име: {name}",
+        f"Електронна поща: {email}",
+    ]
+    if phone:
+        lines.append(f"Телефон: {phone}")
+    lines += [f"Изпратено от: {site}", f"Дата: {dt.strftime('%d.%m.%Y %H:%M')}", "", message]
+    return "\n".join(lines)
 
 
 def _build_html(name: str, phone: str, email: str, message: str, site: str) -> str:
@@ -166,9 +193,13 @@ def send():
             429,
         )
 
-    if not os.environ.get("RESEND_API_KEY") or not os.environ.get("CONTACT_EMAIL"):
+    if (
+        not os.environ.get("SMTP_SERVER")
+        or not os.environ.get("SMTP_USER")
+        or not os.environ.get("SMTP_PASS")
+    ):
         return _json(
-            {"ok": False, "error": "Сървърът не е конфигуриран (RESEND_API_KEY / CONTACT_EMAIL)."},
+            {"ok": False, "error": "Сървърът не е конфигуриран (SMTP_SERVER / SMTP_USER / SMTP_PASS)."},
             500,
         )
 
@@ -198,20 +229,22 @@ def send():
         return _json({"ok": False, "error": "Проверете: " + ", ".join(missing) + "."}, 400)
 
     site = _source_site()
+    to_addr = os.environ.get("CONTACT_EMAIL") or os.environ["SMTP_USER"]
     payload = {
-        "from": os.environ.get("MAIL_FROM", "Contact Form <onboarding@resend.dev>"),
-        "to": [os.environ["CONTACT_EMAIL"]],
+        "from": formataddr(("Контактна форма", os.environ["SMTP_USER"]), charset="utf-8"),
+        "to": to_addr,
         "reply_to": email,
         "subject": f"[{site}] Ново съобщение от {name}",
+        "text": _build_text(name, phone, email, message, site),
         "html": _build_html(name, phone, email, message, site),
     }
     try:
         _send_email(payload)
-    except HTTPError as e:
-        print("Resend HTTP error:", e.code, e.read()[:500], flush=True)
-        return _json({"ok": False, "error": "Имейлът не беше изпратен (грешка от доставчика)."}, 502)
-    except (URLError, TimeoutError, OSError) as e:
-        print("Resend network error:", e, flush=True)
-        return _json({"ok": False, "error": "Имейлът не беше изпратен (мрежова грешка)."}, 502)
+    except smtplib.SMTPAuthenticationError as e:
+        print("SMTP грешка при влизане:", e, flush=True)
+        return _json({"ok": False, "error": "Изпращането не сполучи (грешни пощенски настройки)."}, 502)
+    except (smtplib.SMTPException, TimeoutError, OSError) as e:
+        print("SMTP мрежова грешка:", e, flush=True)
+        return _json({"ok": False, "error": "Изпращането не сполучи (мрежова грешка)."}, 502)
 
     return _json({"ok": True, "message": "Съобщението е изпратено."})
