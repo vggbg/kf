@@ -84,8 +84,8 @@ textarea { min-height: 120px; resize: vertical; }
     white-space: nowrap;
 }
 .btn i { font-size: 0.85rem; }
-.btn-primary { background: var(--accent); color: #06393d; box-shadow: 0 4px 10px rgba(53, 231, 239, 0.35); }
-.btn-primary:hover, .btn-primary:active { background: var(--accent-dark); transform: scale(0.98); }
+.btn-primary { background: #fff; border-color: #d0d9df; color: #1e2b37; box-shadow: 0 1px 5px rgba(30, 43, 55, 0.08); }
+.btn-primary:hover, .btn-primary:active { background: #e9edf0; transform: scale(0.98); }
 .btn-primary:disabled { opacity: 0.6; cursor: default; transform: none; }
 .btn-outline { background: transparent; border-color: #d0d9df; }
 .btn-outline:hover { background: #e9edf0; }
