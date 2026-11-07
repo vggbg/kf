@@ -22,9 +22,14 @@
     }
   }
 
+  // Самостоятелно отваряне (без iframe) - картичка с нормални размери
+  if (!inIframe()) {
+    document.body.classList.add("standalone");
+  }
+
   function reportHeight() {
     var el = document.querySelector(".wrap");
-    var h = el ? Math.ceil(el.getBoundingClientRect().height) : document.body.scrollHeight;
+    var h = el ? Math.ceil(el.getBoundingClientRect().bottom + window.scrollY) : document.body.scrollHeight;
     postToParent({ type: "cfw:resize", height: h });
   }
 
@@ -91,10 +96,21 @@
       });
   });
 
-  document.getElementById("cancel-btn").addEventListener("click", function () {
-    postToParent({ type: "cfw:close" });
-  });
-  document.getElementById("close-btn").addEventListener("click", function () {
-    postToParent({ type: "cfw:close" });
-  });
+  // Затваряне в iframe (съобщение към страницата-гостител)
+  // или нулиране при самостоятелно отваряне, за да може ново съобщение
+  function requestClose() {
+    if (inIframe()) {
+      postToParent({ type: "cfw:close" });
+      return;
+    }
+    form.reset();
+    status.textContent = "";
+    status.classList.remove("error");
+    success.hidden = true;
+    form.hidden = false;
+    reportHeight();
+  }
+
+  document.getElementById("cancel-btn").addEventListener("click", requestClose);
+  document.getElementById("close-btn").addEventListener("click", requestClose);
 })();
