@@ -96,10 +96,21 @@
       });
   });
 
-  document.getElementById("cancel-btn").addEventListener("click", function () {
-    postToParent({ type: "cfw:close" });
-  });
-  document.getElementById("close-btn").addEventListener("click", function () {
-    postToParent({ type: "cfw:close" });
-  });
+  // Затваряне в iframe (съобщение към страницата-гостител)
+  // или нулиране при самостоятелно отваряне, за да може ново съобщение
+  function requestClose() {
+    if (inIframe()) {
+      postToParent({ type: "cfw:close" });
+      return;
+    }
+    form.reset();
+    status.textContent = "";
+    status.classList.remove("error");
+    success.hidden = true;
+    form.hidden = false;
+    reportHeight();
+  }
+
+  document.getElementById("cancel-btn").addEventListener("click", requestClose);
+  document.getElementById("close-btn").addEventListener("click", requestClose);
 })();
