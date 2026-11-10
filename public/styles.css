@@ -28,7 +28,11 @@ body {
     color: #1e2b37;
 }
 
-.wrap { padding: 0; display: flow-root; }
+/* Фикс: полетата не трябва да опират до ръба на iframe-а, иначе
+   синята focus-лента (box-shadow 0 0 0 3px) се реже от iframe viewport-а.
+   Достатъчни са 10px отляво и отдясно (лентата е 3px навън от полето).
+   В standalone режим отдолу се презаписва от body.standalone .wrap. */
+.wrap { padding: 0 10px; display: flow-root; }
 
 label {
     font-weight: 500;
