@@ -7,6 +7,22 @@
     document.documentElement.style.setProperty("--accent", accent);
   }
 
+  // Страница-източник на съобщението.
+  // Гостителската страница подава собствения си адрес чрез ?from=... (най-надеждно,
+  // защото браузърът не изпраща адреса на родителската страница в хедърите).
+  // Резервни варианти при липса на параметър: document.referrer (при iframe
+  // съдържа поне домейна на гостителя) или ancestorOrigins (само домейн, Chromium).
+  var fromPage = params.get("from") || "";
+  if (!fromPage) {
+    try {
+      fromPage = document.referrer ||
+        (window.location.ancestorOrigins && window.location.ancestorOrigins.length
+          ? window.location.ancestorOrigins[0]
+          : "");
+    } catch (e) { fromPage = ""; }
+  }
+  if (fromPage.length > 300) fromPage = fromPage.slice(0, 300);
+
   var form = document.getElementById("contact-form");
   var status = document.getElementById("status");
   var btn = document.getElementById("submit-btn");
@@ -50,7 +66,9 @@
       phone: document.getElementById("phone").value.trim(),
       email: document.getElementById("email").value.trim(),
       message: document.getElementById("message").value.trim(),
-      website: document.getElementById("website").value
+      website: document.getElementById("website").value,
+      // адресът на страницата, от която е изпратено съобщението
+      page: fromPage || "(неизвестна страница)"
     };
 
     if (!data.name || !data.email || !data.message) {
