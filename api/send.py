@@ -38,6 +38,7 @@ app = Flask(__name__)
 EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 MAX_NAME_LEN = 100
 MAX_MESSAGE_LEN = 3000
+MAX_PAGE_LEN = 300
 
 _rate = {}  # ip -> [времеви печати]
 
@@ -118,16 +119,44 @@ def _send_email(payload: dict) -> None:
             smtp.send_message(msg)
 
 
+def _domain_of(url: str) -> str:
+    """Домейнът от един URL (или ""), напр. 'vggbg.com'."""
+    m = re.match(r"https?://([^/]+)", (url or "").strip())
+    return m.group(1) if m else ""
+
+
 def _source_site() -> str:
-    """От кой домейн е дошло съобщението (Origin / Referer)."""
+    """От кой домейн е дошло съобщението (Origin / Referer).
+
+    Внимание: при вграждане в iframe тези хедъри сочат към адреса на самата
+    форма, а не към гостителската страница - затова form.js подава пълния
+    адрес на гостителя в полето 'page', което има предност пред тях.
+    """
     for h in (request.headers.get("Origin", ""), request.headers.get("Referer", "")):
-        m = re.match(r"https?://([^/]+)", (h or "").strip())
-        if m:
-            return m.group(1)
+        d = _domain_of(h)
+        if d:
+            return d
     return request.host or "сайт"
 
 
-def _build_text(name: str, phone: str, email: str, message: str, site: str) -> str:
+def _clean_page(raw) -> str:
+    """Поле 'page' от формуляра: адресът на страницата, от която е изпратено.
+
+    Приема се само валиден http(s) адрес без контролни знаци и без интервали;
+    при всяко съмнение връща "" и потребителят на имейла вижда резервния
+    домейн от Origin/Referer. Така полето не може да се използва за инжекция
+    в писмото.
+    """
+    if not isinstance(raw, str):
+        return ""
+    raw = "".join(ch for ch in raw if ord(ch) >= 32).strip()
+    if not raw or len(raw) > MAX_PAGE_LEN:
+        return ""
+    return raw if re.match(r"^https?://[^\s<>\"']+$", raw) else ""
+
+
+def _build_text(name: str, phone: str, email: str, message: str,
+                page: str, site: str) -> str:
     dt = datetime.now(_TZ) if _TZ else datetime.utcnow()
     lines = [
         "Ново съобщение от контактната форма",
@@ -137,12 +166,21 @@ def _build_text(name: str, phone: str, email: str, message: str, site: str) -> s
     ]
     if phone:
         lines.append(f"Телефон: {phone}")
-    lines += [f"Изпратено от: {site}", f"Дата: {dt.strftime('%d.%m.%Y %H:%M')}", "", message]
+    lines += [f"Изпратено от: {page or site}", f"Дата: {dt.strftime('%d.%m.%Y %H:%M')}", "", message]
     return "\n".join(lines)
 
 
-def _build_html(name: str, phone: str, email: str, message: str, site: str) -> str:
+def _build_html(name: str, phone: str, email: str, message: str,
+                page: str, site: str) -> str:
     dt = datetime.now(_TZ) if _TZ else datetime.utcnow()
+    if page:
+        # кликабелен линк към страницата, от която е дошло съобщението
+        source_cell = (
+            f'<a href="{html.escape(page, quote=True)}" style="color:#2563eb;">'
+            f"{html.escape(page)}</a>"
+        )
+    else:
+        source_cell = html.escape(site)
     rows = [
         ("Име", html.escape(name)),
         ("Електронна поща", html.escape(email)),
@@ -150,7 +188,7 @@ def _build_html(name: str, phone: str, email: str, message: str, site: str) -> s
     if phone:
         rows.append(("Телефон", html.escape(phone)))
     rows += [
-        ("Изпратено от", html.escape(site)),
+        ("Изпратено от", source_cell),
         ("Дата", dt.strftime("%d.%m.%Y %H:%M")),
         ("Съобщение", html.escape(message).replace("\n", "<br>")),
     ]
@@ -228,15 +266,19 @@ def send():
     if missing:
         return _json({"ok": False, "error": "Проверете: " + ", ".join(missing) + "."}, 400)
 
-    site = _source_site()
+    # Адрес на страницата-източник: пълният URL от form.js, ако го има;
+    # иначе домейн от Origin/Referer (стара версия на form.js или директно API).
+    page = _clean_page(data.get("page"))
+    site = _domain_of(page) or _source_site()
+
     to_addr = os.environ.get("CONTACT_EMAIL") or os.environ["SMTP_USER"]
     payload = {
         "from": formataddr(("Контактна форма", os.environ["SMTP_USER"]), charset="utf-8"),
         "to": to_addr,
         "reply_to": email,
         "subject": f"[{site}] Ново съобщение от {name}",
-        "text": _build_text(name, phone, email, message, site),
-        "html": _build_html(name, phone, email, message, site),
+        "text": _build_text(name, phone, email, message, page, site),
+        "html": _build_html(name, phone, email, message, page, site),
     }
     try:
         _send_email(payload)
